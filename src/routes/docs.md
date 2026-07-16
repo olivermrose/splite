@@ -1,9 +1,7 @@
 ## Installation
 
-Splite is a Svelte 5 library (it uses runes) and has a peer dependency on `svelte ^5.0.0`.
-
 ```bash
-npm install splite
+npm install svelte-splite
 ```
 
 ## Quick start
@@ -12,7 +10,7 @@ Wrap your layout in `Splite.Provider`, then render the pane tree with `Splite.Vi
 
 ```svelte
 <script lang="ts">
-	import { Splite, useSplite } from "splite";
+	import { Splite, useSplite } from "svelte-splite";
 
 	const splite = useSplite();
 </script>
