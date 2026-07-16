@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+.splite-pane {
+	outline: 1px solid var(--color-neutral-800);
+	outline-offset: -1px;
+	display: flex;
+	flex-direction: column;
+	animation: splite-fade-in var(--splite-transition-duration, 150ms) ease;
+
+	@keyframes splite-fade-in {
+		from {
+			opacity: 0;
+		}
+	}
+}
+
+.splite-splitter:hover,
+.splite-splitter[data-resizing="true"] {
+	background: --alpha(var(--color-blue-400) / 0.4);
+	transition: background 120ms ease;
+}
+
+.splite-drop-indicator[data-target="zone"] {
+	transition:
+		translate 120ms ease,
+		width 120ms ease,
+		height 120ms ease;
+	animation: splite-fade-in 120ms ease;
+}
+
+@keyframes splite-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+pre.shiki {
+	margin: 0;
+	padding: 1rem;
+	min-height: 100%;
+	box-sizing: border-box;
+}
+
+.prose-splite {
+	font-size: 0.875rem;
+	line-height: 1.7;
+	color: var(--color-neutral-400);
+}
+
+.prose-splite h2 {
+	margin-top: 4rem;
+	margin-bottom: 1rem;
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: var(--color-neutral-100);
+}
+
+.prose-splite h3 {
+	margin-top: 2rem;
+	margin-bottom: 0.75rem;
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--color-neutral-200);
+}
+
+.prose-splite p {
+	margin-bottom: 1rem;
+}
+
+.prose-splite a {
+	color: var(--color-blue-400);
+	text-decoration: underline;
+}
+
+.prose-splite :not(pre) > code {
+	background: var(--color-neutral-900);
+	padding: 0.125rem 0.375rem;
+	font-size: 0.8125em;
+	color: var(--color-neutral-200);
+}
+
+.prose-splite pre {
+	margin-bottom: 1.5rem;
+	overflow-x: auto;
+	border: 1px solid var(--color-neutral-800);
+	padding: 1rem;
+	font-size: 0.75rem;
+	line-height: 1.6;
+}
+
+/* shiki sets its own background on the <pre> */
+.prose-splite pre.shiki {
+	min-height: 0;
+}
+
+.prose-splite table {
+	margin-bottom: 1.5rem;
+	width: 100%;
+	border: 1px solid var(--color-neutral-800);
+	border-radius: 0.5rem;
+	border-collapse: collapse;
+	text-align: left;
+}
+
+.prose-splite th {
+	border-bottom: 1px solid var(--color-neutral-800);
+	padding: 0.5rem 1rem;
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--color-neutral-500);
+}
+
+.prose-splite td {
+	border-bottom: 1px solid var(--color-neutral-800);
+	padding: 0.75rem 1rem;
+	vertical-align: top;
+}
+
+.prose-splite tr:last-child td {
+	border-bottom: none;
+}
+
+.prose-splite td:first-child code,
+.prose-splite td:first-child {
+	white-space: nowrap;
+}
+
+.prose-splite td code {
+	color: var(--color-blue-300);
+}
