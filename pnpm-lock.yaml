@@ -19,6 +19,13 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@ui-sdk/core':
+        specifier: 0.1.0-beta.13
+        version: 0.1.0-beta.13
+      '@ui-sdk/svelte':
+        specifier: 0.1.0-beta.13
+        version: 0.1.0-beta.13(@ui-sdk/core@0.1.0-beta.13)(svelte@5.59.1)
     devDependencies:
       '@sveltejs/adapter-auto':
         specifier: ^8.0.1
@@ -473,6 +480,15 @@ packages:
 
   '@types/estree@1.0.10':
     resolution: {integrity: sha512-lTyOMnOcmRBzdCv6/4zUZCrEhV0xrqQiUZBZtVcbmLHBXKLnN8q89v/wKRF/Q0HbwVsqbIG3o5HDoFl9sduM+g==}
+
+  '@ui-sdk/core@0.1.0-beta.13':
+    resolution: {integrity: sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg==}
+
+  '@ui-sdk/svelte@0.1.0-beta.13':
+    resolution: {integrity: sha512-2yGep6KtTUNBSKnoXzyD1pwI3pywJjT5aZ23gyOthNFXHOVLaGyv1qJVWKjTQ14x/iMDA/d9iztmxyBxH36Nuw==}
+    peerDependencies:
+      '@ui-sdk/core': ^0.1.0-beta.13
+      svelte: '>=5.33'
 
   '@vitest/browser-preview@5.1.0':
     resolution: {integrity: sha512-z9SbodBSMoJtYy5VTCaSP5SSZfNYRlfIlR0P/uH1PAuhUJbstSyOYvxXCYmqG+EemIiZzd3uGUtREX5zbXLR8A==}
@@ -1421,6 +1437,13 @@ snapshots:
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.10': {}
+
+  '@ui-sdk/core@0.1.0-beta.13': {}
+
+  '@ui-sdk/svelte@0.1.0-beta.13(@ui-sdk/core@0.1.0-beta.13)(svelte@5.59.1)':
+    dependencies:
+      '@ui-sdk/core': 0.1.0-beta.13
+      svelte: 5.59.1
 
   '@vitest/browser-preview@5.1.0(@voidzero-dev/vite-plus-core@8.3.8000(publint@0.3.25)(typescript@6.0.3))(vitest@5.1.0)':
     dependencies:
