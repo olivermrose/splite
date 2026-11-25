@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, test, vi } from "vite-plus/test";
-import type { LayoutCommitDetails } from "#lib";
+import type { LayoutCommitDetails } from "#lib/flex/index.ts";
 import type { ParentGroup } from "#lib/flex/types.ts";
 import Fixture from "./fixtures/Fixture.svelte";
 
