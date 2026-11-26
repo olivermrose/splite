@@ -26,7 +26,6 @@
 		createResizableController,
 		Resizable,
 		type ResizableLayoutChangeDetails,
-		type ResizableLayoutCommitDetails,
 	} from "@ui-sdk/svelte/resizable";
 	import type { ComponentProps } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
