@@ -14,7 +14,7 @@ export default defineConfig({
 					name: "unit",
 					include: ["{src,test}/**/*.test.ts"],
 					exclude: ["{src,test}/**/*.browser.test.ts"],
-					environment: "jsdom",
+					environment: "happy-dom",
 					setupFiles: ["./test/setup.ts"],
 					css: false,
 				},
