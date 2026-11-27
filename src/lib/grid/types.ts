@@ -1,4 +1,4 @@
-import type { ChangeDetails, CommitDetails } from "@ui-sdk/core";
+import type { ChangeDetails, CommitDetails, PrimitiveOptions } from "@ui-sdk/core";
 
 /**
  * The size of a track. A number is a percentage of the grid, like `30`. A
@@ -213,3 +213,225 @@ export type GridController = {
 	 */
 	getSize: (axis: GridAxis, track: TrackRef) => TrackSize;
 };
+
+/**
+ * Whether each axis reserves a gutter track between its tracks for gridlines.
+ */
+export interface GutterOptions {
+	columns?: boolean;
+	rows?: boolean;
+}
+
+export interface GridOptions extends PrimitiveOptions {
+	/**
+	 * The columns of the grid. This can be either:
+	 * - a number, which creates that many columns that share the grid evenly,
+	 * or
+	 * - an array of tracks, which creates a column for each track with its
+	 * id, sizes, and behavior.
+	 */
+	columns: number | GridTrack[];
+
+	/**
+	 * The rows of the grid. This can be either:
+	 * - a number, which creates that many rows that share the grid evenly, or
+	 * - an array of tracks, which creates a row for each track with its id,
+	 * sizes, and behavior.
+	 */
+	rows: number | GridTrack[];
+
+	/**
+	 * The size of each column and row as a percentage of the grid. Set it to
+	 * control the layout.
+	 */
+	layout?: GridLayout;
+
+	/**
+	 * The starting layout when `layout` is not set. Each axis applies only
+	 * when it has a size for every track on that axis. Otherwise, the tracks
+	 * on that axis start at their `defaultSize`.
+	 *
+	 * A layout saved under `autoSaveId` takes priority over this one.
+	 */
+	defaultLayout?: Partial<GridLayout>;
+
+	/**
+	 * Fires each time the layout is about to change: on each pointer move of a
+	 * drag, on each key press, on each controller call, and when the grid or
+	 * its tracks change size.
+	 *
+	 * Call `details.cancel()` to keep the current layout.
+	 */
+	onLayoutChange?: (layout: GridLayout, details: GridLayoutChangeDetails) => void;
+
+	/**
+	 * Fires once when an interaction that changed the layout ends: when the
+	 * pointer lifts after a drag, when a key is released, after a collapse or
+	 * an expand, and after each controller call that changes the layout. It
+	 * does not fire when the grid changes size.
+	 *
+	 * Use it to save the layout.
+	 */
+	onLayoutCommit?: (layout: GridLayout, details: GridLayoutCommitDetails) => void;
+
+	/**
+	 * Prevents all gridlines and boundaries from being dragged or moved with
+	 * the keyboard, and removes the gridlines from the tab order.
+	 *
+	 * @default false
+	 */
+	disabled?: boolean;
+
+	/**
+	 * How far an arrow key moves a gridline, as a percentage of the grid.
+	 *
+	 * @default 1
+	 */
+	step?: number;
+
+	/**
+	 * How far Shift with an arrow key moves a gridline, as a percentage of
+	 * the grid.
+	 *
+	 * @default 10
+	 */
+	largeStep?: number;
+
+	/**
+	 * Saves the layout under this id when an interaction ends, and restores it
+	 * when the grid next mounts. The grid saves one layout for each set of
+	 * track ids, so a layout never restores onto different tracks.
+	 *
+	 * Has no effect when `layout` is set.
+	 */
+	autoSaveId?: string;
+
+	/**
+	 * Where `autoSaveId` saves layouts.
+	 *
+	 * @default localStorage
+	 */
+	storage?: GridStorage;
+
+	/**
+	 * Reserves a gutter track between each pair of tracks on an axis, for its
+	 * gridlines.
+	 *
+	 * A gridline registers with the grid only when it mounts, so a grid
+	 * rendered on the server has no gutters until hydration, and its layout
+	 * shifts. Set an axis to `true` when it has gridlines to reserve the
+	 * gutters from the first render. An axis that is not set gets gutters
+	 * when a gridline of its type mounts.
+	 */
+	gutters?: GutterOptions;
+
+	/**
+	 * A controller to resize and inspect the grid from outside it. Create one
+	 * with `createGridController`.
+	 */
+	controller?: GridController;
+}
+
+export interface CellProps {
+	/**
+	 * The id of the cell. Each gridline lists the cells it resizes by this id
+	 * in its `aria-controls`.
+	 */
+	id?: string;
+
+	/**
+	 * The zero-based index of the column that the cell starts in.
+	 */
+	column: number;
+
+	/**
+	 * The zero-based index of the row that the cell starts in.
+	 */
+	row: number;
+
+	/**
+	 * How many columns the cell covers.
+	 *
+	 * @default 1
+	 */
+	columnSpan?: number;
+
+	/**
+	 * How many rows the cell covers.
+	 *
+	 * @default 1
+	 */
+	rowSpan?: number;
+}
+
+export interface GridlineProps {
+	/**
+	 * The id of the gridline.
+	 */
+	id?: string;
+
+	/**
+	 * - `"column"` places a vertical gridline between two columns.
+	 * - `"row"` places a horizontal gridline between two rows.
+	 */
+	type: GridlineType;
+
+	/**
+	 * - For a column gridline, the index of the column after the gridline,
+	 * from 1 to the number of columns minus 1. A column gridline needs it.
+	 * - For a row gridline, the zero-based index of the first column that the
+	 * gridline crosses.
+	 *
+	 * @default 0
+	 */
+	column?: number;
+
+	/**
+	 * - For a row gridline, the index of the row after the gridline, from 1
+	 * to the number of rows minus 1. A row gridline needs it.
+	 * - For a column gridline, the zero-based index of the first row that the
+	 * gridline crosses.
+	 *
+	 * @default 0
+	 */
+	row?: number;
+
+	/**
+	 * For a row gridline, how many columns the gridline crosses. A column
+	 * gridline ignores it.
+	 *
+	 * @default all columns from `column` to the last
+	 */
+	columnSpan?: number;
+
+	/**
+	 * For a column gridline, how many rows the gridline crosses. A row
+	 * gridline ignores it.
+	 *
+	 * @default all rows from `row` to the last
+	 */
+	rowSpan?: number;
+
+	/**
+	 * Prevents the gridline from being dragged or moved with the keyboard,
+	 * and removes it from the tab order.
+	 *
+	 * @default false
+	 */
+	disabled?: boolean;
+
+	/**
+	 * Stops a double-click from collapsing or expanding a track beside the
+	 * gridline. A double-click toggles the track before the gridline when it
+	 * is collapsible, and otherwise the track after it.
+	 *
+	 * @default false
+	 */
+	disableDoubleClick?: boolean;
+}
+
+/**
+ * - `"column"` places a vertical gridline between two columns.
+ * - `"row"` places a horizontal gridline between two rows.
+ */
+export type GridlineType = "column" | "row";

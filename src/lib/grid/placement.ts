@@ -1,4 +1,4 @@
-import type { GridAxis } from "./types";
+import type { CellProps, GridAxis, GridlineProps, GridlineType } from "./types";
 
 export interface CellPlacement {
 	column: number;
@@ -6,8 +6,6 @@ export interface CellPlacement {
 	columnSpan: number;
 	rowSpan: number;
 }
-
-export type GridlineType = "column" | "row";
 
 /**
  * A gridline on the boundary before track `index` of its axis, across `crossStart`
@@ -49,12 +47,53 @@ export interface HitRegion {
 	gridline: HTMLElement | undefined;
 }
 
+export function gridlinePlacement(props: GridlineProps): GridlinePlacement {
+	const column = props.type === "column";
+
+	return {
+		type: props.type,
+		index: (column ? props.column : props.row) ?? 0,
+		crossStart: (column ? props.row : props.column) ?? 0,
+		crossSpan: column ? props.rowSpan : props.columnSpan,
+		disabled: props.disabled ?? false,
+	};
+}
+
+export function cellOf(props: CellProps): CellPlacement {
+	return {
+		column: props.column,
+		row: props.row,
+		columnSpan: props.columnSpan ?? 1,
+		rowSpan: props.rowSpan ?? 1,
+	};
+}
+
 export function axisOf(type: GridlineType): GridAxis {
 	return type === "column" ? "columns" : "rows";
 }
 
 export function crossOf(axis: GridAxis): GridAxis {
 	return axis === "columns" ? "rows" : "columns";
+}
+
+function crossTypeOf(type: GridlineType): GridlineType {
+	return type === "column" ? "row" : "column";
+}
+
+export function typeOf(axis: GridAxis): GridlineType {
+	return axis === "columns" ? "column" : "row";
+}
+
+/**
+ * Whether `index` names a boundary between two of `count` tracks, the only
+ * place a gridline can sit.
+ */
+export function isBoundary(index: number, count: number) {
+	return Number.isInteger(index) && index >= 1 && index < count;
+}
+
+function crossEndOf(line: GridlinePlacement, crossCount: number) {
+	return line.crossSpan === undefined ? crossCount : line.crossStart + line.crossSpan;
 }
 
 // With gutters, the CSS grid alternates track and gutter. Track `index` starts
@@ -68,6 +107,33 @@ function trackLine(index: number, gutters: boolean) {
  */
 export function cellPlacement(start: number, span: number, gutters: boolean) {
 	return `${trackLine(start, gutters)} / span ${gutters ? span * 2 - 1 : span}`;
+}
+
+/**
+ * An axis's `grid-template-columns` or `grid-template-rows` from its track
+ * sizes, with an `auto` gutter between each pair when it has gutters.
+ */
+export function axisTemplate(sizes: readonly string[], gutters: boolean) {
+	return sizes.join(gutters ? " auto " : " ");
+}
+
+/**
+ * The pixels that an axis's tracks take, gutters left out, from its computed
+ * template. `undefined` when the template does not resolve to pixels.
+ */
+export function trackPixels(template: string, count: number, gutters: boolean) {
+	const tokens = template.split(" ").filter(Boolean);
+
+	if (
+		tokens.length !== (gutters ? count * 2 - 1 : count) ||
+		!tokens.every((token) => /^-?[\d.]+px$/.test(token))
+	) {
+		return undefined;
+	}
+
+	return tokens
+		.filter((_, index) => !gutters || index % 2 === 0)
+		.reduce((sum, token) => sum + parseFloat(token), 0);
 }
 
 /**
@@ -259,7 +325,7 @@ export function hitRegions(
 			continue;
 		}
 
-		if (!Number.isInteger(placement.index) || placement.index < 1 || placement.index >= count) {
+		if (!isBoundary(placement.index, count)) {
 			continue;
 		}
 
@@ -368,7 +434,7 @@ export function regionAt(
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 function describeGridline({ type, index, crossStart, crossSpan, disabled }: GridlinePlacement) {
-	const cross = type === "column" ? "row" : "column";
+	const cross = crossTypeOf(type);
 
 	let text = `<Gridline type="${type}" ${type}={${index}}`;
 
@@ -414,14 +480,14 @@ export function placementErrors(
 	const valid: GridlinePlacement[] = [];
 
 	for (const line of gridlines) {
-		const cross = line.type === "column" ? "row" : "column";
+		const cross = crossTypeOf(line.type);
 
 		const n = counts[line.type];
 		const crossN = counts[cross];
 
 		let ok = true;
 
-		if (!Number.isInteger(line.index) || line.index < 1 || line.index >= n) {
+		if (!isBoundary(line.index, n)) {
 			errors.push(
 				`Invalid ${line.type} Gridline ${line.type} (${line.index}); must be between 1 and ${n - 1}`,
 			);
@@ -460,9 +526,8 @@ export function placementErrors(
 	valid.forEach((line, position) => {
 		const axis = axisOf(line.type);
 
-		const cross = line.type === "column" ? "row" : "column";
-		const crossEnd =
-			line.crossSpan === undefined ? counts[cross] : line.crossStart + line.crossSpan;
+		const cross = crossTypeOf(line.type);
+		const crossEnd = crossEndOf(line, counts[cross]);
 
 		for (const cell of cells) {
 			const [start, span, cellCross, cellCrossSpan] = rangeOf(cell, axis);
@@ -483,10 +548,7 @@ export function placementErrors(
 		for (const other of valid.slice(position + 1)) {
 			if (other.type !== line.type || other.index !== line.index) continue;
 
-			const otherEnd =
-				other.crossSpan === undefined ? counts[cross] : other.crossStart + other.crossSpan;
-
-			if (other.crossStart < crossEnd && line.crossStart < otherEnd) {
+			if (other.crossStart < crossEnd && line.crossStart < crossEndOf(other, counts[cross])) {
 				errors.push(`${describeGridline(line)} overlaps ${describeGridline(other)}`);
 			}
 		}

@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	import type { PartProps } from "@ui-sdk/svelte/primitive";
-	import type { CellProps as PrimitiveCellProps } from "./grid";
+	import type { CellProps as PrimitiveCellProps } from "./types";
 
 	export type CellProps = PartProps<"div"> & PrimitiveCellProps;
 </script>

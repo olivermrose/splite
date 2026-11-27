@@ -287,6 +287,17 @@ export function initialLayout(tracks: readonly TrackConstraints[]): number[] {
 }
 
 /**
+ * Where an axis starts: `given` when it has a size for every track, otherwise
+ * each track's default size, fitted to the tracks.
+ */
+export function startAxis(
+	tracks: readonly TrackConstraints[],
+	given?: readonly number[],
+): number[] {
+	return fitLayout(given?.length === tracks.length ? given : initialLayout(tracks), tracks);
+}
+
+/**
  * `layout`, laid out for `from` pixels, moved to `to` pixels: fixed tracks
  * keep their pixels and the others share the rest in proportion.
  */

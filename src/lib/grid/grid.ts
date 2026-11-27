@@ -6,180 +6,86 @@ import {
 	css,
 	definePrimitive,
 	isRTL,
-	type PrimitiveOptions,
 } from "@ui-sdk/core";
 import {
 	adjustLayout,
 	boundaryValues,
 	fitLayout,
-	initialLayout,
 	isCollapsed,
 	preserveFixed,
 	resizeTrack,
 	sameLayout,
+	startAxis,
 	type TrackConstraints,
 } from "./axis";
 import {
 	axisOf,
+	cellOf,
+	gridlinePlacement,
+	axisTemplate,
 	cellPlacement,
 	crossOf,
 	crossPlacement,
 	gutterPlacement,
 	hitRegions,
+	isBoundary,
 	placementErrors,
 	rangeOf,
 	regionAt,
-	type CellPlacement,
-	type GridlinePlacement,
-	type GridlineType,
+	trackPixels,
+	typeOf,
 	type HitRegion,
 } from "./placement";
-import { constraintsOf, initialTemplate, normalizeTracks, toPercent, type Track } from "./tracks";
+import { loadLayout, saveLayout } from "./storage";
+import {
+	constraintsOf,
+	fr,
+	initialTemplate,
+	normalizeTracks,
+	toPercent,
+	type Track,
+} from "./tracks";
 import type {
+	CellProps,
 	GridAxis,
 	GridChangeOptions,
 	GridController,
 	GridLayout,
-	GridLayoutChangeDetails,
 	GridLayoutChangeReason,
-	GridLayoutCommitDetails,
-	GridSize,
-	GridStorage,
-	GridTrack,
+	GridlineProps,
+	GridOptions,
+	GutterOptions,
 	TrackRef,
 } from "./types";
-
-/**
- * Whether each axis reserves a gutter track between its tracks for gridlines.
- */
-export interface GutterOptions {
-	columns?: boolean;
-	rows?: boolean;
-}
-
-export interface GridOptions extends PrimitiveOptions {
-	/**
-	 * The columns of the grid. This can be either:
-	 * - a number, which creates that many columns that share the grid evenly,
-	 * or
-	 * - an array of tracks, which creates a column for each track with its
-	 * id, sizes, and behavior.
-	 */
-	columns: number | GridTrack[];
-
-	/**
-	 * The rows of the grid. This can be either:
-	 * - a number, which creates that many rows that share the grid evenly, or
-	 * - an array of tracks, which creates a row for each track with its id,
-	 * sizes, and behavior.
-	 */
-	rows: number | GridTrack[];
-
-	/**
-	 * The size of each column and row as a percentage of the grid. Set it to
-	 * control the layout.
-	 */
-	layout?: GridLayout;
-
-	/**
-	 * The starting layout when `layout` is not set. Each axis applies only
-	 * when it has a size for every track on that axis. Otherwise, the tracks
-	 * on that axis start at their `defaultSize`.
-	 *
-	 * A layout saved under `autoSaveId` takes priority over this one.
-	 */
-	defaultLayout?: Partial<GridLayout>;
-
-	/**
-	 * Fires each time the layout is about to change: on each pointer move of a
-	 * drag, on each key press, on each controller call, and when the grid or
-	 * its tracks change size.
-	 *
-	 * Call `details.cancel()` to keep the current layout.
-	 */
-	onLayoutChange?: (layout: GridLayout, details: GridLayoutChangeDetails) => void;
-
-	/**
-	 * Fires once when an interaction that changed the layout ends: when the
-	 * pointer lifts after a drag, when a key is released, after a collapse or
-	 * an expand, and after each controller call that changes the layout. It
-	 * does not fire when the grid changes size.
-	 *
-	 * Use it to save the layout.
-	 */
-	onLayoutCommit?: (layout: GridLayout, details: GridLayoutCommitDetails) => void;
-
-	/**
-	 * Prevents all gridlines and boundaries from being dragged or moved with
-	 * the keyboard, and removes the gridlines from the tab order.
-	 *
-	 * @default false
-	 */
-	disabled?: boolean;
-
-	/**
-	 * How far an arrow key moves a gridline, as a percentage of the grid.
-	 *
-	 * @default 1
-	 */
-	step?: number;
-
-	/**
-	 * How far Shift with an arrow key moves a gridline, as a percentage of
-	 * the grid.
-	 *
-	 * @default 10
-	 */
-	largeStep?: number;
-
-	/**
-	 * Saves the layout under this id when an interaction ends, and restores it
-	 * when the grid next mounts. The grid saves one layout for each set of
-	 * track ids, so a layout never restores onto different tracks.
-	 *
-	 * Has no effect when `layout` is set.
-	 */
-	autoSaveId?: string;
-
-	/**
-	 * Where `autoSaveId` saves layouts.
-	 *
-	 * @default localStorage
-	 */
-	storage?: GridStorage;
-
-	/**
-	 * Reserves a gutter track between each pair of tracks on an axis, for its
-	 * gridlines.
-	 *
-	 * A gridline registers with the grid only when it mounts, so a grid
-	 * rendered on the server has no gutters until hydration, and its layout
-	 * shifts. Set an axis to `true` when it has gridlines to reserve the
-	 * gutters from the first render. An axis that is not set gets gutters
-	 * when a gridline of its type mounts.
-	 */
-	gutters?: GutterOptions;
-
-	/**
-	 * A controller to resize and inspect the grid from outside it. Create one
-	 * with {@linkcode createGridController}.
-	 */
-	controller?: GridController;
-}
 
 interface Boundaries {
 	columns: number | null;
 	rows: number | null;
 }
 
+type Space = Record<GridAxis, number>;
+
 interface GridState {
 	columns: Track[];
 	rows: Track[];
 	layout: GridLayout;
-	requested: GridLayout;
-	requestedSpace: { columns: number; rows: number };
-	space: { columns: number; rows: number };
-	measured: boolean;
+
+	/**
+	 * The layout that the user last chose, at `requestedSpace`, which the
+	 * grid returns to when it has room. `undefined` until there is one.
+	 */
+	requested: GridLayout | undefined;
+	requestedSpace: Space;
+
+	/**
+	 * The pixels each axis's tracks share, `0` until the grid is measured.
+	 */
+	space: Space;
+
+	/**
+	 * The pixels in a rem, once the grid is measured.
+	 */
+	rem: number | undefined;
 
 	/**
 	 * Whether the layout was given, so the server renders it rather than each
@@ -187,196 +93,123 @@ interface GridState {
 	 */
 	explicit: boolean;
 	disabled: boolean;
-	cells: Record<string, CellPlacement>;
-	gridlines: Record<string, GridlinePlacement>;
-	gutters: Required<GutterOptions>;
+
+	/**
+	 * The keys of the bound cells and gridlines. Their placements come from
+	 * their props.
+	 */
+	cells: string[];
+	gridlines: string[];
+	gutters: GutterOptions;
 	dragging: Boundaries | null;
 	hovering: Boundaries | null;
 }
 
-export interface CellProps {
+export interface GridRootState {
 	/**
-	 * The id of the cell. Each gridline lists the cells it resizes by this id
-	 * in its `aria-controls`.
+	 * The size of each column and row as a percentage of the grid.
 	 */
-	id?: string;
+	layout: GridLayout;
 
 	/**
-	 * The zero-based index of the column that the cell starts in.
+	 * Whether a pointer is dragging a boundary of the grid.
 	 */
-	column: number;
+	dragging: boolean;
 
 	/**
-	 * The zero-based index of the row that the cell starts in.
+	 * Whether the grid is disabled.
 	 */
-	row: number;
-
-	/**
-	 * How many columns the cell covers.
-	 *
-	 * @default 1
-	 */
-	columnSpan?: number;
-
-	/**
-	 * How many rows the cell covers.
-	 *
-	 * @default 1
-	 */
-	rowSpan?: number;
+	disabled: boolean;
 }
 
-export interface GridlineProps {
+export interface GridlineState {
 	/**
-	 * The id of the gridline.
+	 * `"vertical"` for a column gridline and `"horizontal"` for a row
+	 * gridline.
 	 */
-	id?: string;
+	orientation: "horizontal" | "vertical";
 
 	/**
-	 * - `"column"` places a vertical gridline between two columns.
-	 * - `"row"` places a horizontal gridline between two rows.
+	 * Whether a pointer is dragging the boundary that the gridline sits on.
 	 */
-	type: GridlineType;
+	dragging: boolean;
 
 	/**
-	 * - For a column gridline, the index of the column after the gridline,
-	 * from 1 to the number of columns minus 1. A column gridline needs it.
-	 * - For a row gridline, the zero-based index of the first column that the
-	 * gridline crosses.
-	 *
-	 * @default 0
+	 * Whether the pointer is over the boundary that the gridline sits on,
+	 * on this gridline or on another part of the same boundary.
 	 */
-	column?: number;
+	hovering: boolean;
 
 	/**
-	 * - For a row gridline, the index of the row after the gridline, from 1
-	 * to the number of rows minus 1. A row gridline needs it.
-	 * - For a column gridline, the zero-based index of the first row that the
-	 * gridline crosses.
-	 *
-	 * @default 0
+	 * Whether the gridline is disabled: by its own `disabled` prop, by the
+	 * grid's, or by a placement that is not on a boundary.
 	 */
-	row?: number;
-
-	/**
-	 * For a row gridline, how many columns the gridline crosses. A column
-	 * gridline ignores it.
-	 *
-	 * @default all columns from `column` to the last
-	 */
-	columnSpan?: number;
-
-	/**
-	 * For a column gridline, how many rows the gridline crosses. A row
-	 * gridline ignores it.
-	 *
-	 * @default all rows from `row` to the last
-	 */
-	rowSpan?: number;
-
-	/**
-	 * Prevents the gridline from being dragged or moved with the keyboard,
-	 * and removes it from the tab order.
-	 *
-	 * @default false
-	 */
-	disabled?: boolean;
-
-	/**
-	 * Stops a double-click from collapsing or expanding a track beside the
-	 * gridline. A double-click toggles the track before the gridline when it
-	 * is collapsible, and otherwise the track after it.
-	 *
-	 * @default false
-	 */
-	disableDoubleClick?: boolean;
+	disabled: boolean;
 }
+
+type Cause = { reason: GridLayoutChangeReason; event?: Event };
 
 const AXES = ["columns", "rows"] as const;
-const STORAGE_PREFIX = "splite-grid:";
 
 // The smallest hit region across a boundary, in CSS pixels, for each pointer
 // type. 24 is the minimum target size of WCAG 2.2 (success criterion 2.5.8).
 const MIN_TARGET = { fine: 10, coarse: 24 };
 
-/**
- * Returns the storage key that a grid with the given `autoSaveId` saves its
- * layouts under. Use it to read or clear the saved layouts.
- */
-export function gridStorageKey(autoSaveId: string) {
-	return STORAGE_PREFIX + autoSaveId;
-}
-
-function storageOf(options: GridOptions): GridStorage | undefined {
-	if (options.storage) return options.storage;
-
-	// Reading `localStorage` throws when the browser blocks storage, such as
-	// in a sandboxed iframe.
-	try {
-		return globalThis.localStorage;
-	} catch {
-		return undefined;
-	}
-}
-
-// Saved layouts are keyed by track ids so that a layout saved for one set of
-// tracks does not restore onto a different set under the same `autoSaveId`.
-function layoutKey(state: Pick<GridState, "columns" | "rows">) {
-	return `${state.columns.map((track) => track.id).join(",")}|${state.rows.map((track) => track.id).join(",")}`;
-}
-
 function sameGridLayout(a: GridLayout, b: GridLayout) {
 	return sameLayout(a.columns, b.columns) && sameLayout(a.rows, b.rows);
 }
 
-function gridlinePlacement(props: GridlineProps): GridlinePlacement {
-	const column = props.type === "column";
+function measured(state: Pick<GridState, "space">) {
+	return state.space.columns > 0 && state.space.rows > 0;
+}
+
+function gridlineView(state: GridState, props: GridlineProps) {
+	const line = gridlinePlacement(props);
+	const axis = axisOf(line.type);
+	const valid = isBoundary(line.index, state[axis].length);
 
 	return {
-		type: props.type,
-		index: (column ? props.column : props.row) ?? 0,
-		crossStart: (column ? props.row : props.column) ?? 0,
-		crossSpan: column ? props.rowSpan : props.columnSpan,
-		disabled: props.disabled ?? false,
+		line,
+		axis,
+		valid,
+		orientation: line.type === "column" ? ("vertical" as const) : ("horizontal" as const),
+		dragging: state.dragging?.[axis] === line.index,
+		hovering: state.hovering?.[axis] === line.index,
+		disabled: state.disabled || line.disabled || !valid,
 	};
 }
 
-function cellOf(props: CellProps): CellPlacement {
-	return {
-		column: props.column,
-		row: props.row,
-		columnSpan: props.columnSpan ?? 1,
-		rowSpan: props.rowSpan ?? 1,
-	};
+function remSize(el: Element) {
+	return parseFloat(getComputedStyle(el.ownerDocument.documentElement).fontSize) || undefined;
 }
 
-function remSize(el?: Element) {
-	const root = el?.ownerDocument.documentElement;
-	if (!root) return 16;
-
-	return parseFloat(getComputedStyle(root).fontSize) || 16;
+function constraints(
+	state: Pick<GridState, GridAxis | "space" | "rem">,
+	axis: GridAxis,
+): TrackConstraints[] {
+	return state[axis].map((track) => constraintsOf(track, state.space[axis], state.rem));
 }
 
-function constraints(state: GridState, axis: GridAxis, rem?: number): TrackConstraints[] {
-	return state[axis].map((track) => constraintsOf(track, state.space[axis], rem));
+/**
+ * Where the grid starts: the controlled layout, then `preferred`, then the
+ * default layout, then each track's default size, for each axis.
+ */
+function startLayout(
+	state: Pick<GridState, GridAxis | "space" | "rem">,
+	options: GridOptions,
+	preferred?: GridLayout,
+): GridLayout {
+	const start = (axis: GridAxis) =>
+		startAxis(
+			constraints(state, axis),
+			options.layout?.[axis] ?? preferred?.[axis] ?? options.defaultLayout?.[axis],
+		);
+
+	return { columns: start("columns"), rows: start("rows") };
 }
 
-function startLayout(options: GridOptions, columns: Track[], rows: Track[]): GridLayout {
-	if (options.layout) return options.layout;
-
-	function pick(axis: GridAxis, tracks: Track[]) {
-		const given = options.defaultLayout?.[axis];
-		const fitted = tracks.map((track) => constraintsOf(track, 0));
-
-		return given?.length === tracks.length
-			? fitLayout(given, fitted)
-			: fitLayout(initialLayout(fitted), fitted);
-	}
-
-	return {
-		columns: pick("columns", columns),
-		rows: pick("rows", rows),
-	};
+function sameIds(a: readonly Track[], b: readonly Track[]) {
+	return a.length === b.length && a.every((track, i) => track.id === b[i].id);
 }
 
 /**
@@ -404,32 +237,23 @@ export const grid = definePrimitive({
 	controlled: ["layout"],
 	commits: ["layout"],
 	state(options: GridOptions): GridState {
-		const columns = normalizeTracks(options.columns);
-		const rows = normalizeTracks(options.rows);
-		const layout = startLayout(options, columns, rows);
+		const tracks = {
+			columns: normalizeTracks(options.columns),
+			rows: normalizeTracks(options.rows),
+			space: { columns: 0, rows: 0 },
+			rem: undefined,
+		};
 
 		return {
-			columns,
-			rows,
-			layout,
-			requested: layout,
-			requestedSpace: {
-				columns: 0,
-				rows: 0,
-			},
-			space: {
-				columns: 0,
-				rows: 0,
-			},
-			measured: false,
+			...tracks,
+			layout: startLayout(tracks, options),
+			requested: undefined,
+			requestedSpace: tracks.space,
 			explicit: options.layout !== undefined || options.defaultLayout !== undefined,
 			disabled: options.disabled ?? false,
-			cells: {},
-			gridlines: {},
-			gutters: {
-				columns: options.gutters?.columns ?? false,
-				rows: options.gutters?.rows ?? false,
-			},
+			cells: [],
+			gridlines: [],
+			gutters: { ...options.gutters },
 			dragging: null,
 			hovering: null,
 		};
@@ -444,7 +268,7 @@ export const grid = definePrimitive({
 		const commit = createCommit(context);
 
 		let root: HTMLElement | undefined;
-		let keyCommit: GridLayoutChangeReason | undefined;
+		let keyChanged = false;
 
 		let stopDrag: (() => void) | undefined;
 
@@ -454,25 +278,32 @@ export const grid = definePrimitive({
 			rows: {},
 		};
 
-		const rem = () => remSize(root);
-		const tracksOf = (axis: GridAxis) => constraints(store.get(), axis, rem());
+		const tracksOf = (axis: GridAxis) => constraints(store.get(), axis);
 
-		function refreshGutters() {
-			const { gridlines } = store.get();
+		function placed<Props extends object, Placement>(
+			slot: "cell" | "gridline",
+			keys: readonly string[],
+			place: (props: Props) => Placement,
+		) {
+			return keys.flatMap((key) => {
+				const props = context.props<Props>(slot, key);
+				return props ? [{ key, placement: place(props) }] : [];
+			});
+		}
 
-			const given = context.options().gutters;
-			const lines = Object.values(gridlines);
+		const cellsOf = (state: GridState) => placed("cell", state.cells, cellOf);
+		const gridlinesOf = (state: GridState) =>
+			placed("gridline", state.gridlines, gridlinePlacement);
 
-			const gutters = {
-				columns: given?.columns ?? lines.some((line) => line.type === "column"),
-				rows: given?.rows ?? lines.some((line) => line.type === "row"),
+		function guttersOf(state: GridState): Record<GridAxis, boolean> {
+			const lines = gridlinesOf(state);
+			const lined = (axis: GridAxis) =>
+				lines.some(({ placement }) => placement.type === typeOf(axis));
+
+			return {
+				columns: state.gutters.columns ?? lined("columns"),
+				rows: state.gutters.rows ?? lined("rows"),
 			};
-
-			const current = store.get().gutters;
-
-			if (gutters.columns !== current.columns || gutters.rows !== current.rows) {
-				store.set({ gutters });
-			}
 		}
 
 		function reportPlacement() {
@@ -482,8 +313,8 @@ export const grid = definePrimitive({
 			const errors = placementErrors(
 				state.columns.length,
 				state.rows.length,
-				Object.values(state.cells),
-				Object.values(state.gridlines),
+				cellsOf(state).map(({ placement }) => placement),
+				gridlinesOf(state).map(({ placement }) => placement),
 			);
 
 			// Each error logs once while it stays true, so that each new cell or
@@ -503,211 +334,142 @@ export const grid = definePrimitive({
 			}
 		}
 
+		/**
+		 * Changes the tracks, cells, or gridlines, which placement errors check.
+		 */
+		function setPlacement(patch: Partial<Pick<GridState, GridAxis | "cells" | "gridlines">>) {
+			store.set(patch);
+			reportPlacement();
+		}
+
+		function register(list: "cells" | "gridlines", key: string) {
+			setPlacement({ [list]: [...store.get()[list], key] });
+
+			return () => {
+				setPlacement({ [list]: store.get()[list].filter((other) => other !== key) });
+			};
+		}
+
 		context.onOptions((options) => {
 			const state = store.get();
+			const gutters = options.gutters ?? {};
 
-			const columns = normalizeTracks(options.columns);
-			const rows = normalizeTracks(options.rows);
+			store.set({
+				disabled: options.disabled ?? false,
+				...(gutters.columns !== state.gutters.columns || gutters.rows !== state.gutters.rows
+					? { gutters: { ...gutters } }
+					: {}),
+			});
 
-			const next: Partial<GridState> = { disabled: options.disabled ?? false };
+			const tracks = {
+				columns: normalizeTracks(options.columns),
+				rows: normalizeTracks(options.rows),
+			};
 
-			const changedTracks =
-				JSON.stringify(columns) !== JSON.stringify(state.columns) ||
-				JSON.stringify(rows) !== JSON.stringify(state.rows);
-
-			if (changedTracks) {
-				next.columns = columns;
-				next.rows = rows;
+			if (
+				JSON.stringify(tracks) ===
+				JSON.stringify({ columns: state.columns, rows: state.rows })
+			) {
+				return;
 			}
 
-			store.set(next);
+			setPlacement(tracks);
 
-			if (changedTracks) {
-				function fitted(axis: GridAxis, tracks: Track[]) {
-					const previous = state[axis];
-					const ids = tracks.map((track) => track.id);
+			const start = startLayout(store.get(), options);
 
-					const same =
-						previous.length === tracks.length &&
-						previous.every((t, i) => t.id === ids[i]);
+			const fitted = (axis: GridAxis) =>
+				sameIds(state[axis], tracks[axis])
+					? fitLayout((state.requested ?? state.layout)[axis], tracksOf(axis))
+					: start[axis];
 
-					const source = same
-						? state.requested[axis]
-						: startLayout(options, columns, rows)[axis];
-
-					return fitLayout(source, tracksOf(axis));
-				}
-
-				const layout = {
-					columns: fitted("columns", columns),
-					rows: fitted("rows", rows),
-				};
-
-				if (!sameGridLayout(layout, state.layout)) {
-					apply(layout, { reason: "resize" });
-				}
-
-				reportPlacement();
-			}
-
-			refreshGutters();
+			apply({ columns: fitted("columns"), rows: fitted("rows") }, { reason: "resize" });
 		});
 
 		// A change that the grid's size forces passes `remember` as false. It
 		// leaves `requested` as it was, so the layout that the user chose comes
 		// back when the grid has room for it again.
-		function apply(
-			layout: GridLayout,
-			details: GridChangeOptions & { event?: Event },
-			remember = true,
-		) {
+		function apply(layout: GridLayout, cause: Cause, remember = true) {
 			const state = store.get();
 
 			if (sameGridLayout(layout, state.layout)) {
 				return false;
 			}
 
-			const accepted = change("layout", layout, {
-				reason: details.reason ?? "imperative",
-				event: details.event,
-			});
+			const accepted = change("layout", layout, cause);
 
 			if (accepted && remember) {
 				store.set({
 					requested: layout,
 					requestedSpace: { ...state.space },
-					explicit: true,
 				});
 			}
 
 			return accepted;
 		}
 
-		function save() {
-			const { autoSaveId } = context.options();
-			if (!autoSaveId) return;
+		function finish({ reason, event }: Cause) {
+			const state = store.get();
 
-			const storage = storageOf(context.options());
-			if (!storage) return;
-
-			const key = gridStorageKey(autoSaveId);
-
-			try {
-				const saved = JSON.parse(storage.getItem(key) ?? "{}") as Record<
-					string,
-					GridLayout
-				>;
-
-				saved[layoutKey(store.get())] = store.get().requested;
-				storage.setItem(key, JSON.stringify(saved));
-			} catch (error) {
-				console.error(error);
-			}
+			commit("layout", state.layout, { reason, event });
+			saveLayout(context.options(), state, state.requested ?? state.layout);
 		}
 
-		function load(): GridLayout | undefined {
-			const options = context.options();
+		/**
+		 * Runs a change that `options` describe, and commits it when the layout
+		 * changed.
+		 */
+		function committed(
+			{ reason = "imperative", event }: GridChangeOptions = {},
+			run: (cause: Cause) => boolean,
+		) {
+			const cause = { reason, event };
+			const done = run(cause);
 
-			if (!options.autoSaveId || options.layout) {
-				return undefined;
+			if (done) {
+				finish(cause);
 			}
 
-			try {
-				const raw = storageOf(options)?.getItem(gridStorageKey(options.autoSaveId));
-
-				const layout = raw
-					? (JSON.parse(raw) as Record<string, GridLayout>)[layoutKey(store.get())]
-					: undefined;
-
-				const state = store.get();
-
-				if (
-					layout?.columns?.length === state.columns.length &&
-					layout.rows?.length === state.rows.length
-				) {
-					return layout;
-				}
-			} catch {
-				return undefined;
-			}
-
-			return undefined;
+			return done;
 		}
 
-		function finish(reason: GridLayoutChangeReason, event?: Event) {
-			commit("layout", store.get().layout, { reason, event });
-			save();
-		}
-
-		function measure(el: HTMLElement) {
+		function measure(el: HTMLElement): Space {
 			const style = getComputedStyle(el);
-			const { gutters } = store.get();
+			const gutters = guttersOf(store.get());
 
-			const space = { columns: 0, rows: 0 };
+			// The computed template gives each track in pixels, which leaves out
+			// the gutters. The client size is the fallback for when it does not
+			// resolve to pixels.
+			const space = (axis: GridAxis) =>
+				trackPixels(
+					axis === "columns" ? style.gridTemplateColumns : style.gridTemplateRows,
+					store.get()[axis].length,
+					gutters[axis],
+				) ?? (axis === "columns" ? el.clientWidth : el.clientHeight);
 
-			// The computed template gives each track in pixels, with a gutter
-			// between each pair of tracks when the axis has gutters. The sum of
-			// the tracks alone leaves the gutters out of the space that the
-			// percentages refer to. The client size is the fallback for when the
-			// template does not resolve to pixels.
-			for (const axis of AXES) {
-				const count = store.get()[axis].length;
-				const template =
-					axis === "columns" ? style.gridTemplateColumns : style.gridTemplateRows;
-				const tokens = template.split(" ").filter(Boolean);
-				const expected = gutters[axis] ? count * 2 - 1 : count;
-
-				if (
-					tokens.length === expected &&
-					tokens.every((token) => /^-?[\d.]+px$/.test(token))
-				) {
-					space[axis] = tokens
-						.filter((_, index) => !gutters[axis] || index % 2 === 0)
-						.reduce((sum, token) => sum + parseFloat(token), 0);
-				} else {
-					space[axis] = axis === "columns" ? el.clientWidth : el.clientHeight;
-				}
-			}
-
-			return space;
+			return { columns: space("columns"), rows: space("rows") };
 		}
 
 		function resized(el: HTMLElement) {
 			const space = measure(el);
 			const state = store.get();
 
-			if (space.columns <= 0 || space.rows <= 0) return;
+			if (!measured({ space })) return;
 
-			if (
-				state.measured &&
-				space.columns === state.space.columns &&
-				space.rows === state.space.rows
-			) {
+			if (space.columns === state.space.columns && space.rows === state.space.rows) {
 				return;
 			}
 
-			store.set({ space });
+			store.set({ space, rem: remSize(el) });
 
-			if (!state.measured) {
+			if (!measured(state)) {
 				const options = context.options();
-				const saved = load();
-
-				let start = saved ?? state.layout;
-
-				if (!saved && !options.layout && !options.defaultLayout) {
-					start = {
-						columns: initialLayout(tracksOf("columns")),
-						rows: initialLayout(tracksOf("rows")),
-					};
-				}
-
-				const layout = {
-					columns: fitLayout(start.columns, tracksOf("columns")),
-					rows: fitLayout(start.rows, tracksOf("rows")),
-				};
+				const layout = startLayout(
+					store.get(),
+					options,
+					state.requested ?? loadLayout(options, state),
+				);
 
 				store.set({
-					measured: true,
 					requested: layout,
 					requestedSpace: space,
 				});
@@ -717,46 +479,29 @@ export const grid = definePrimitive({
 				return;
 			}
 
-			const layout = {
-				columns: fitLayout(
-					preserveFixed(
-						state.requested.columns,
-						tracksOf("columns"),
-						state.requestedSpace.columns,
-						space.columns,
-					),
-					tracksOf("columns"),
-				),
-				rows: fitLayout(
-					preserveFixed(
-						state.requested.rows,
-						tracksOf("rows"),
-						state.requestedSpace.rows,
-						space.rows,
-					),
-					tracksOf("rows"),
-				),
-			};
+			const requested = state.requested ?? state.layout;
 
-			const fixed = AXES.some((axis) => tracksOf(axis).some((track) => track.fixed));
-			apply(layout, { reason: "resize" }, false);
+			const refit = (axis: GridAxis) =>
+				fitLayout(
+					preserveFixed(
+						requested[axis],
+						tracksOf(axis),
+						state.requestedSpace[axis],
+						space[axis],
+					),
+					tracksOf(axis),
+				);
 
-			if (fixed) {
-				store.set({
-					requested: store.get().layout,
-					requestedSpace: space,
-				});
-			}
+			apply({ columns: refit("columns"), rows: refit("rows") }, { reason: "resize" }, false);
 		}
 
 		function indexOf(axis: GridAxis, ref: TrackRef) {
 			const tracks = store.get()[axis];
+			const noun = typeOf(axis);
 
 			if (typeof ref === "number") {
 				if (!Number.isInteger(ref) || ref < 0 || ref >= tracks.length) {
-					throw new Error(
-						`Grid has no ${axis.slice(0, -1)} at index ${ref}; it has ${tracks.length}`,
-					);
+					throw new Error(`Grid has no ${noun} at index ${ref}; it has ${tracks.length}`);
 				}
 
 				return ref;
@@ -766,23 +511,23 @@ export const grid = definePrimitive({
 
 			if (index < 0) {
 				throw new Error(
-					`Grid has no ${axis.slice(0, -1)} with id "${ref}"; its ids are ${tracks.map((track) => `"${track.id}"`).join(", ")}`,
+					`Grid has no ${noun} with id "${ref}"; its ids are ${tracks.map((track) => `"${track.id}"`).join(", ")}`,
 				);
 			}
 
 			return index;
 		}
 
-		function setAxis(axis: GridAxis, values: readonly number[], details: GridChangeOptions) {
+		function setAxis(axis: GridAxis, values: readonly number[], cause: Cause) {
 			const layout = {
 				...store.get().layout,
 				[axis]: fitLayout(values, tracksOf(axis)),
 			};
 
-			return apply(layout, details);
+			return apply(layout, cause);
 		}
 
-		function collapseTrack(axis: GridAxis, index: number, details: GridChangeOptions) {
+		function collapseTrack(axis: GridAxis, index: number, cause: Cause) {
 			const tracks = tracksOf(axis);
 
 			const track = tracks[index];
@@ -794,10 +539,10 @@ export const grid = definePrimitive({
 
 			expanded[axis][store.get()[axis][index].id] = sizes[index];
 
-			return setAxis(axis, resizeTrack(sizes, tracks, index, track.collapsed), details);
+			return setAxis(axis, resizeTrack(sizes, tracks, index, track.collapsed), cause);
 		}
 
-		function expandTrack(axis: GridAxis, index: number, details: GridChangeOptions) {
+		function expandTrack(axis: GridAxis, index: number, cause: Cause) {
 			const tracks = tracksOf(axis);
 
 			const track = tracks[index];
@@ -811,7 +556,7 @@ export const grid = definePrimitive({
 
 			// A track with no remembered size and a `min` of 0 would stay at 0,
 			// so it expands to 1% instead.
-			return setAxis(axis, resizeTrack(sizes, tracks, index, target || 1), details);
+			return setAxis(axis, resizeTrack(sizes, tracks, index, target || 1), cause);
 		}
 
 		function toggleBoundary(axis: GridAxis, boundary: number, event?: Event) {
@@ -824,37 +569,29 @@ export const grid = definePrimitive({
 
 			if (index < 0) return false;
 
-			const details = {
-				reason: "collapse" as const,
-				event,
-			};
-
-			const sizes = store.get().layout[axis];
-
-			const done = isCollapsed(tracks[index], sizes[index])
-				? expandTrack(axis, index, details)
-				: collapseTrack(axis, index, details);
-
-			if (done) {
-				finish("collapse", event);
-			}
-
-			return done;
+			return committed({ reason: "collapse", event }, (cause) =>
+				isCollapsed(tracks[index], store.get().layout[axis][index])
+					? expandTrack(axis, index, cause)
+					: collapseTrack(axis, index, cause),
+			);
 		}
 
 		function hitsAt(x: number, y: number): Partial<Record<GridAxis, HitRegion>> {
 			const state = store.get();
 			if (!root || state.disabled) return {};
 
-			const cells = Object.entries(state.cells).flatMap(([id, placement]) => {
-				const el = context.element("cell", id);
-				return el ? [{ el, placement }] : [];
-			});
+			function bound<Placement>(
+				slot: "cell" | "gridline",
+				list: { key: string; placement: Placement }[],
+			) {
+				return list.flatMap(({ key, placement }) => {
+					const el = context.element(slot, key);
+					return el ? [{ el, placement }] : [];
+				});
+			}
 
-			const gridlines = Object.entries(state.gridlines).flatMap(([id, placement]) => {
-				const el = context.element("gridline", id);
-				return el ? [{ el, placement }] : [];
-			});
+			const cells = bound("cell", cellsOf(state));
+			const gridlines = bound("gridline", gridlinesOf(state));
 
 			const coarse =
 				root.ownerDocument.defaultView?.matchMedia?.("(pointer: coarse)").matches;
@@ -863,7 +600,7 @@ export const grid = definePrimitive({
 
 			for (const axis of AXES) {
 				const regions = hitRegions(axis, {
-					trackDisabled: state[axis].map((track) => track.disabled ?? false),
+					trackDisabled: tracksOf(axis).map((track) => track.disabled),
 					crossCount: state[crossOf(axis)].length,
 					cells,
 					gridlines,
@@ -932,80 +669,48 @@ export const grid = definePrimitive({
 			cursorSheet?.remove();
 		});
 
-		const api = {
+		const controller = {
 			getLayout: (): GridLayout => store.get().layout,
-			setLayout(
-				layout: Partial<GridLayout>,
-				{ reason = "imperative", event }: GridChangeOptions = {},
-			) {
-				const current = store.get().layout;
+			setLayout: (layout: Partial<GridLayout>, options?: GridChangeOptions) =>
+				committed(options, (cause) => {
+					const current = store.get().layout;
 
-				const next = {
-					columns: layout.columns
-						? fitLayout(layout.columns, tracksOf("columns"))
-						: current.columns,
-					rows: layout.rows ? fitLayout(layout.rows, tracksOf("rows")) : current.rows,
-				};
-
-				const done = apply(next, { reason, event });
-
-				if (done) {
-					finish(reason, event);
-				}
-
-				return done;
-			},
-			collapse(
+					return apply(
+						{
+							columns: layout.columns
+								? fitLayout(layout.columns, tracksOf("columns"))
+								: current.columns,
+							rows: layout.rows
+								? fitLayout(layout.rows, tracksOf("rows"))
+								: current.rows,
+						},
+						cause,
+					);
+				}),
+			collapse: (axis: GridAxis, track: TrackRef, options?: GridChangeOptions) =>
+				committed(options, (cause) => collapseTrack(axis, indexOf(axis, track), cause)),
+			expand: (axis: GridAxis, track: TrackRef, options?: GridChangeOptions) =>
+				committed(options, (cause) => expandTrack(axis, indexOf(axis, track), cause)),
+			resize: (
 				axis: GridAxis,
 				track: TrackRef,
-				{ reason = "imperative", event }: GridChangeOptions = {},
-			) {
-				const done = collapseTrack(axis, indexOf(axis, track), { reason, event });
+				size: Parameters<GridController["resize"]>[2],
+				options?: GridChangeOptions,
+			) =>
+				committed(options, (cause) => {
+					const state = store.get();
+					const index = indexOf(axis, track);
+					const target = toPercent(size, state.space[axis], state.rem);
 
-				if (done) {
-					finish(reason, event);
-				}
-
-				return done;
-			},
-			expand(
-				axis: GridAxis,
-				track: TrackRef,
-				{ reason = "imperative", event }: GridChangeOptions = {},
-			) {
-				const done = expandTrack(axis, indexOf(axis, track), { reason, event });
-
-				if (done) {
-					finish(reason, event);
-				}
-
-				return done;
-			},
-			resize(
-				axis: GridAxis,
-				track: TrackRef,
-				size: GridSize,
-				{ reason = "imperative", event }: GridChangeOptions = {},
-			) {
-				const index = indexOf(axis, track);
-				const target = toPercent(size, store.get().space[axis], rem());
-
-				if (target === undefined) {
-					return false;
-				}
-
-				const done = setAxis(
-					axis,
-					resizeTrack(store.get().layout[axis], tracksOf(axis), index, target),
-					{ reason, event },
-				);
-
-				if (done) {
-					finish(reason, event);
-				}
-
-				return done;
-			},
+					return (
+						target !== undefined &&
+						setAxis(
+							axis,
+							resizeTrack(state.layout[axis], tracksOf(axis), index, target),
+							cause,
+						)
+					);
+				}),
 			isCollapsed(axis: GridAxis, track: TrackRef) {
 				const index = indexOf(axis, track);
 				return isCollapsed(tracksOf(axis)[index], store.get().layout[axis][index]);
@@ -1019,7 +724,15 @@ export const grid = definePrimitive({
 					pixels: (percentage / 100) * store.get().space[axis],
 				};
 			},
+		} satisfies GridController;
+
+		return {
+			...controller,
+			controller,
 			internal: {
+				cellsOf,
+				gridlinesOf,
+				guttersOf,
 				bindRoot(el: HTMLElement) {
 					root = el;
 
@@ -1036,42 +749,7 @@ export const grid = definePrimitive({
 						}
 					};
 				},
-				registerCell(key: string, props: CellProps) {
-					store.set({
-						cells: {
-							...store.get().cells,
-							[key]: cellOf(props),
-						},
-					});
-
-					reportPlacement();
-
-					return () => {
-						const { [key]: _removed, ...cells } = store.get().cells;
-						store.set({ cells });
-
-						reportPlacement();
-					};
-				},
-				registerGridline(key: string, props: GridlineProps) {
-					store.set({
-						gridlines: {
-							...store.get().gridlines,
-							[key]: gridlinePlacement(props),
-						},
-					});
-
-					refreshGutters();
-					reportPlacement();
-
-					return () => {
-						const { [key]: _removed, ...gridlines } = store.get().gridlines;
-						store.set({ gridlines });
-
-						refreshGutters();
-						reportPlacement();
-					};
-				},
+				register,
 				pointerdown(event: PointerEvent) {
 					if (event.defaultPrevented || event.button !== 0 || !root || stopDrag) {
 						return;
@@ -1101,9 +779,7 @@ export const grid = definePrimitive({
 
 					setCursor(boundaries);
 
-					const el = root;
-
-					stopDrag = bindDrag(el, event, {
+					stopDrag = bindDrag(root, event, {
 						cancelOnEscape: true,
 						onMove({ x, y, event: move }) {
 							const state = store.get();
@@ -1149,7 +825,7 @@ export const grid = definePrimitive({
 							setCursor(null);
 
 							if (!canceled && !sameGridLayout(initial, store.get().layout)) {
-								finish("drag", end);
+								finish({ reason: "drag", event: end });
 							}
 						},
 					});
@@ -1170,28 +846,22 @@ export const grid = definePrimitive({
 					store.set({ hovering: null });
 					setCursor(null);
 				},
-				keydown(event: KeyboardEvent, key: string, el: HTMLElement) {
+				keydown(event: KeyboardEvent, el: HTMLElement, props: GridlineProps) {
 					const state = store.get();
-					const placement = state.gridlines[key];
+					const { line, axis, disabled } = gridlineView(state, props);
 
-					if (!placement || state.disabled || placement.disabled) return;
+					if (disabled) return;
 
-					const axis = axisOf(placement.type);
-					const boundary = placement.index;
-
-					if (
-						!Number.isInteger(boundary) ||
-						boundary < 1 ||
-						boundary >= state[axis].length
-					) {
-						return;
-					}
+					const boundary = line.index;
 
 					if (event.key === "F6") {
-						const lines = Object.entries(state.gridlines)
-							.filter(([, line]) => line.type === placement.type && !line.disabled)
-							.map(([id]) => context.element("gridline", id))
-							.filter((line): line is HTMLElement => !!line)
+						const lines = gridlinesOf(state)
+							.filter(
+								({ placement }) =>
+									placement.type === line.type && !placement.disabled,
+							)
+							.map(({ key }) => context.element("gridline", key))
+							.filter((other): other is HTMLElement => !!other)
 							.sort((a, b) =>
 								a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
 									? -1
@@ -1239,80 +909,55 @@ export const grid = definePrimitive({
 					event.preventDefault();
 
 					const sizes = state.layout[axis];
-					const tracks = tracksOf(axis);
-					const next = fitLayout(
-						adjustLayout(
-							delta,
-							sizes,
-							sizes,
-							tracks,
-							[boundary - 1, boundary],
-							"keyboard",
-						),
-						tracks,
+					const next = adjustLayout(
+						delta,
+						sizes,
+						sizes,
+						tracksOf(axis),
+						[boundary - 1, boundary],
+						"keyboard",
 					);
 
 					if (setAxis(axis, next, { reason: "step-key", event })) {
-						keyCommit = "step-key";
+						keyChanged = true;
 					}
 				},
 				keyup(event: KeyboardEvent) {
-					if (!keyCommit) return;
+					if (!keyChanged) return;
 
-					const reason = keyCommit;
-					keyCommit = undefined;
-
-					finish(reason, event);
+					keyChanged = false;
+					finish({ reason: "step-key", event });
 				},
-				dblclick(event: MouseEvent, key: string) {
-					const state = store.get();
-					const placement = state.gridlines[key];
+				dblclick(event: MouseEvent, props: GridlineProps) {
+					const { line, axis, disabled } = gridlineView(store.get(), props);
 
-					const props = context.props<GridlineProps>("gridline", key);
+					if (disabled || props.disableDoubleClick) return;
 
-					if (
-						!placement ||
-						state.disabled ||
-						placement.disabled ||
-						props?.disableDoubleClick
-					) {
-						return;
-					}
-
-					const axis = axisOf(placement.type);
-
-					if (toggleBoundary(axis, placement.index, event)) {
+					if (toggleBoundary(axis, line.index, event)) {
 						event.preventDefault();
 					}
 				},
 			},
 		};
-
-		return api;
 	},
 	slots(slot) {
 		return {
-			root: slot<
-				object,
-				{
-					layout: GridLayout;
-					dragging: boolean;
-					disabled: boolean;
-				}
-			>({
+			root: slot<object, GridRootState>({
 				state: (state) => ({
 					layout: state.layout,
 					dragging: state.dragging !== null,
 					disabled: state.disabled,
 				}),
-				attrs(state) {
+				attrs(state, { api }) {
+					const gutters = api.internal.guttersOf(state);
+
 					function template(axis: GridAxis) {
 						const sizes =
-							state.measured || state.explicit
-								? state.layout[axis].map((size) => `minmax(0, ${size}fr)`)
-								: initialTemplate(state[axis], undefined);
+							measured(state) || state.explicit || state.requested
+								? state.layout[axis].map(fr)
+								: initialTemplate(state[axis]);
 
-						return sizes.join(state.gutters[axis] ? " auto " : " ");
+						return axisTemplate(sizes, gutters[axis]);
 					}
 
 					return {
@@ -1337,9 +982,7 @@ export const grid = definePrimitive({
 						api.internal.pointerleave();
 					},
 				},
-				bind(el, part) {
-					part.api.internal.bindRoot(el);
-				},
+				bind: (el, part) => part.api.internal.bindRoot(el),
 			}),
 			cell: slot<CellProps>({
 				props: {
@@ -1349,8 +992,9 @@ export const grid = definePrimitive({
 					columnSpan: "number",
 					rowSpan: "number",
 				},
-				attrs(state, { props, key }) {
+				attrs(state, { props, key, api }) {
 					const cell = cellOf(props);
+					const gutters = api.internal.guttersOf(state);
 
 					return {
 						id: key,
@@ -1358,27 +1002,17 @@ export const grid = definePrimitive({
 							"grid-column": cellPlacement(
 								cell.column,
 								cell.columnSpan,
-								state.gutters.columns,
+								gutters.columns,
 							),
-							"grid-row": cellPlacement(cell.row, cell.rowSpan, state.gutters.rows),
+							"grid-row": cellPlacement(cell.row, cell.rowSpan, gutters.rows),
 							"min-width": "0",
 							"min-height": "0",
 						}),
 					};
 				},
-				bind(_el, part) {
-					part.api.internal.registerCell(part.key, part.props);
-				},
+				bind: (_el, part) => part.api.internal.register("cells", part.key),
 			}),
-			gridline: slot<
-				GridlineProps,
-				{
-					orientation: "horizontal" | "vertical";
-					dragging: boolean;
-					hovering: boolean;
-					disabled: boolean;
-				}
-			>({
+			gridline: slot<GridlineProps, GridlineState>({
 				props: {
 					id: "id",
 					type: "string",
@@ -1391,7 +1025,7 @@ export const grid = definePrimitive({
 				},
 				role: "separator",
 				focus(state, { props }) {
-					return state.disabled || props.disabled
+					return gridlineView(state, props).disabled
 						? { none: "A disabled gridline leaves the tab order." }
 						: "tab-stop";
 				},
@@ -1406,68 +1040,57 @@ export const grid = definePrimitive({
 					"F6",
 				],
 				state(state, { props }) {
-					const line = gridlinePlacement(props);
-					const axis = axisOf(line.type);
-
-					return {
-						orientation: line.type === "column" ? "vertical" : "horizontal",
-						dragging: state.dragging?.[axis] === line.index,
-						hovering: state.hovering?.[axis] === line.index,
-						disabled: state.disabled || line.disabled,
-					};
+					const { orientation, dragging, hovering, disabled } = gridlineView(
+						state,
+						props,
+					);
+					return { orientation, dragging, hovering, disabled };
 				},
-				attrs(state, { props, key }) {
-					const line = gridlinePlacement(props);
-
-					const axis = axisOf(line.type);
+				attrs(state, { props, key, api }) {
+					const { line, axis, valid, orientation, dragging, hovering, disabled } =
+						gridlineView(state, props);
 					const cross = crossOf(axis);
 
-					const count = state[axis].length;
-					const valid =
-						Number.isInteger(line.index) && line.index >= 1 && line.index < count;
-					const disabled = state.disabled || line.disabled || !valid;
-
 					const values = valid
-						? boundaryValues(
-								state.layout[axis],
-								state[axis].map((track) => constraintsOf(track, state.space[axis])),
-								line.index,
-							)
+						? boundaryValues(state.layout[axis], constraints(state, axis), line.index)
 						: { now: 0, min: 0, max: 0 };
 
 					// A boundary can have several gridlines along it. Only the
 					// first enabled one is a tab stop, so each boundary takes one
 					// stop in the tab order.
-					const first = !Object.entries(state.gridlines).some(
-						([id, other]) =>
-							id !== key &&
-							other.type === line.type &&
-							other.index === line.index &&
-							!other.disabled &&
-							other.crossStart < line.crossStart,
-					);
+					const first = !api.internal
+						.gridlinesOf(state)
+						.some(
+							({ key: id, placement: other }) =>
+								id !== key &&
+								other.type === line.type &&
+								other.index === line.index &&
+								!other.disabled &&
+								other.crossStart < line.crossStart,
+						);
 
-					const controls = Object.entries(state.cells)
-						.filter(([, cell]) => {
-							const [start, span] = rangeOf(cell, axis);
+					const controls = api.internal
+						.cellsOf(state)
+						.filter(({ placement }) => {
+							const [start, span] = rangeOf(placement, axis);
 							return start <= line.index - 1 && line.index - 1 < start + span;
 						})
-						.map(([id]) => id)
+						.map(({ key: id }) => id)
 						.join(" ");
 
 					return {
 						id: key,
-						"aria-orientation": line.type === "column" ? "vertical" : "horizontal",
+						"aria-orientation": orientation,
 						"aria-valuenow": String(Math.round(values.now)),
 						"aria-valuemin": String(Math.round(values.min)),
 						"aria-valuemax": String(Math.round(values.max)),
 						"aria-controls": controls || undefined,
 						"aria-disabled": disabled ? "true" : undefined,
 						tabindex: disabled ? undefined : first ? "0" : "-1",
-						"data-orientation": line.type === "column" ? "vertical" : "horizontal",
+						"data-orientation": orientation,
 						"data-disabled": disabled ? "" : undefined,
-						"data-dragging": state.dragging?.[axis] === line.index ? "" : undefined,
-						"data-hovering": state.hovering?.[axis] === line.index ? "" : undefined,
+						"data-dragging": dragging ? "" : undefined,
+						"data-hovering": hovering ? "" : undefined,
 						style: css({
 							[axis === "columns" ? "grid-column" : "grid-row"]: gutterPlacement(
 								line.index,
@@ -1476,28 +1099,26 @@ export const grid = definePrimitive({
 								line.crossStart,
 								line.crossSpan,
 								state[cross].length,
-								state.gutters[cross],
+								api.internal.guttersOf(state)[cross],
 							),
 							"touch-action": "none",
 						}),
 					};
 				},
 				on: {
-					keydown(event, { el, key, api }) {
+					keydown(event, { el, props, api }) {
 						if (el) {
-							api.internal.keydown(event as KeyboardEvent, key, el);
+							api.internal.keydown(event as KeyboardEvent, el, props);
 						}
 					},
 					keyup(event, { api }) {
 						api.internal.keyup(event as KeyboardEvent);
 					},
-					dblclick(event, { key, api }) {
-						api.internal.dblclick(event as MouseEvent, key);
+					dblclick(event, { props, api }) {
+						api.internal.dblclick(event as MouseEvent, props);
 					},
 				},
-				bind(_el, part) {
-					part.api.internal.registerGridline(part.key, part.props);
-				},
+				bind: (_el, part) => part.api.internal.register("gridlines", part.key),
 			}),
 		};
 	},

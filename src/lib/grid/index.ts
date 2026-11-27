@@ -8,18 +8,15 @@ export * from "./Grid.svelte";
 export * from "./Cell.svelte";
 export * from "./Gridline.svelte";
 
-export {
-	createGridController,
-	grid,
-	gridStorageKey,
-	type CellProps,
-	type GridlineProps,
-	type GridOptions,
-} from "./grid";
+export { createGridController, grid } from "./grid";
+export { gridStorageKey } from "./storage";
 
 export { getParentGrid, type ParentGrid } from "./context";
 
 export type {
+	CellProps,
+	GridlineProps,
+	GridOptions,
 	GridAxis,
 	GridChangeOptions,
 	GridController,

@@ -1,38 +1,21 @@
 <script lang="ts" module>
 	import type { PartProps } from "@ui-sdk/svelte/primitive";
-	import type { GridOptions } from "./grid";
-	import type { GridLayout } from "./types";
+	import type { GridRootState } from "./grid";
+	import type { GridOptions } from "./types";
 
-	interface GridState {
-		/**
-		 * The size of each column and row as a percentage of the grid.
-		 */
-		layout: GridLayout;
-
-		/**
-		 * Whether a pointer is dragging a boundary of the grid.
-		 */
-		dragging: boolean;
-
-		/**
-		 * Whether the grid is disabled.
-		 */
-		disabled: boolean;
-	}
-
-	export type GridProps = PartProps<"div", GridState> & Omit<GridOptions, "id">;
+	export type GridProps = PartProps<"div", GridRootState> & Omit<GridOptions, "id">;
 </script>
 
 <script lang="ts">
 	import { Part, usePart, usePrimitive } from "@ui-sdk/svelte/primitive";
 	import { setContext } from "svelte";
 	import { setGrid } from "./context";
-	import { createGridController, grid } from "./grid";
+	import { grid } from "./grid";
 
 	let {
 		columns,
 		rows,
-		controller: givenController,
+		controller,
 		layout = $bindable(),
 		defaultLayout,
 		disabled,
@@ -48,10 +31,6 @@
 	}: GridProps = $props();
 
 	const id = $props.id();
-
-	const defaultController = createGridController();
-
-	const controller = $derived(givenController ?? defaultController);
 
 	const handle = usePrimitive(grid, () => ({
 		id,
@@ -85,9 +64,7 @@
 		get id() {
 			return (props.id as string | undefined) ?? id;
 		},
-		get controller() {
-			return controller;
-		},
+		controller: handle.api.controller,
 	});
 
 	const root = usePart(handle, "root");

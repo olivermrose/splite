@@ -29,8 +29,8 @@ export function normalizeTracks(tracks: number | readonly GridTrack[]): Track[] 
 }
 
 /**
- * A size in percent of `space` pixels. Pixel and rem sizes are undefined until
- * the grid is measured.
+ * A size in percent of `space` pixels, with `rem` pixels to a rem. Pixel and
+ * rem sizes are undefined until the grid is measured.
  */
 export function toPercent(size: GridSize | undefined, space: number, rem = 16): number | undefined {
 	if (size === undefined) {
@@ -75,15 +75,17 @@ export function constraintsOf(track: GridTrack, space: number, rem?: number): Tr
 const isPercent = (size: GridSize | undefined) => typeof size === "number" || !!size?.endsWith("%");
 
 /**
- * The CSS track sizes before the grid is measured, like on the server: the
- * layout as `fr` when there is one, otherwise each default size, with pixel
- * and rem defaults as written.
+ * The CSS size of a track that takes `size` percent of the grid.
  */
-export function initialTemplate(tracks: readonly Track[], layout: readonly number[] | undefined) {
-	if (layout?.length === tracks.length) {
-		return layout.map((size) => `minmax(0, ${size}fr)`);
-	}
+export function fr(size: number) {
+	return `minmax(0, ${size}fr)`;
+}
 
+/**
+ * The CSS track sizes before the grid is measured, like on the server: each
+ * default size, with pixel and rem defaults as written.
+ */
+export function initialTemplate(tracks: readonly Track[]) {
 	let unsized = 0;
 	let total = 0;
 
@@ -99,11 +101,11 @@ export function initialTemplate(tracks: readonly Track[], layout: readonly numbe
 
 	return tracks.map((track) => {
 		if (track.defaultSize === undefined) {
-			return `minmax(0, ${format(share)}fr)`;
+			return fr(format(share));
 		}
 
 		if (isPercent(track.defaultSize)) {
-			return `minmax(0, ${toPercent(track.defaultSize, 0)}fr)`;
+			return fr(toPercent(track.defaultSize, 0) ?? 0);
 		}
 
 		return String(track.defaultSize);
