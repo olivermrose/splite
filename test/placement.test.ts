@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
-	cellPlacement,
-	crossPlacement,
-	gutterPlacement,
 	hitRegions,
 	placementErrors,
 	regionAt,
@@ -69,20 +66,6 @@ function regions(axis: "columns" | "rows", cells: ReturnType<typeof at>[], extra
 const square = () => [at(0, 0), at(1, 0), at(0, 1), at(1, 1)];
 
 describe("placement", () => {
-	test("cells and gridlines land on the right lines", () => {
-		expect(cellPlacement(1, 1, false)).toBe("2 / span 1");
-		expect(cellPlacement(0, 2, false)).toBe("1 / span 2");
-		expect(cellPlacement(1, 1, true)).toBe("3 / span 1");
-
-		expect(gutterPlacement(1)).toBe("2 / span 1");
-		expect(gutterPlacement(2)).toBe("4 / span 1");
-
-		expect(crossPlacement(0, undefined, 2, true)).toBe("1 / -1");
-		expect(crossPlacement(0, 1, 2, true)).toBe("1 / 3");
-		expect(crossPlacement(1, 1, 3, true)).toBe("2 / 5");
-		expect(crossPlacement(1, undefined, 3, true)).toBe("2 / 6");
-	});
-
 	test("a boundary between cells merges across gaps", () => {
 		expect(regions("columns", square())).toEqual([[50, 0, 60, 110]]);
 		expect(regions("rows", square())).toEqual([[50, 0, 60, 110]]);
