@@ -173,6 +173,41 @@ describe("Grid in a browser", () => {
 		expect(layout().rows).toEqual([40, 60]);
 	});
 
+	test("a cell that moves to span a boundary blocks dragging there", async () => {
+		const { rerender } = await mount({ bound: true });
+
+		await rerender({
+			cells: [
+				{ id: "cell-0-0", column: 0, row: 0 },
+				{ id: "cell-1-0", column: 1, row: 0 },
+				{ id: "cell-0-1", column: 0, row: 1, columnSpan: 2 },
+			],
+		});
+		await frame();
+
+		await dragFrom(50, 75, 60, 75);
+		expect(layout()).toEqual(EVEN);
+	});
+
+	test("removing the last gridline of an axis removes its gutters", async () => {
+		const { rerender } = await mount({
+			gridlines: [
+				{
+					id: "line",
+					type: "column",
+					column: 1,
+				},
+			],
+		});
+
+		expect(root().style.gridTemplateColumns).toBe("minmax(0px, 50fr) auto minmax(0px, 50fr)");
+
+		await rerender({ gridlines: [] });
+		await frame();
+
+		expect(root().style.gridTemplateColumns).toBe("minmax(0px, 50fr) minmax(0px, 50fr)");
+	});
+
 	test("track constraints and disabled tracks hold during a drag", async () => {
 		await mount({
 			bound: true,
@@ -326,6 +361,22 @@ describe("Grid in a browser", () => {
 		expect(layout()).toEqual(EVEN);
 
 		error.mockRestore();
+	});
+
+	test("a gridline across some tracks reaches into the gutter beside them", async () => {
+		await mount({
+			size: 110,
+			gridlines: [
+				{ id: "top", type: "column", column: 1, row: 0, rowSpan: 1 },
+				{ id: "row-line", type: "row", row: 1 },
+			],
+		});
+
+		const top = document.getElementById("top")!.getBoundingClientRect();
+		const cell = document.getElementById("cell-0-0")!.getBoundingClientRect();
+
+		expect(top.top).toBeCloseTo(cell.top, 0);
+		expect(top.height).toBeCloseTo(cell.height + 10, 0);
 	});
 
 	test("only the first gridline on a boundary is a tab stop", async () => {
