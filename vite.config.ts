@@ -7,6 +7,7 @@ import { commands } from "./test/commands";
 
 export default defineConfig({
 	test: {
+		isolate: false,
 		projects: [
 			{
 				extends: true,
